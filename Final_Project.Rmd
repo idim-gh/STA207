@@ -1,0 +1,568 @@
+---
+title: "The Impact of Class Sizes on First Grade Math Scaled Scores"
+author: "Ian Dimapasok"
+date: "March 1, 2024"
+output:
+  html_document:
+    df_print: paged
+    number_sections: false
+  pdf_document: default
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+
+***
+
+### 1. Abstract
+
+
+This report delves into the Tennessee STAR project, exploring the effect class sizes have on 1st grade math scores. The dataset used in this study is introduced in the Background section, explaining what the data consists of and the experimental design used in the study. A descriptive analysis is then provided to show insightful summary statistics for various class types, which laid the ground work for a more deeper exploration. An ANOVA model and hypothesis testing is then employed to explore the effect of class types on the math scores of 1st grade students. Sensitivity analysis follows which assesses our model assumptions and employing various nonparametric tests when assumptions were violated. The report then explores other potential factors that impact the student achievement of 1st graders as well an analysis on the missing data and lastly, potential caveats in our analysis. 
+
+
+### 2. Introduction
+
+In this project, we explore the impact of class size on educational outcomes, a topic of significant interest in the educational field. The motivation for this analysis is to understand the optimal class size for students in order to enhance student achievement and overall school performance. This study is particularly relevant for the Tennessee Student Teacher Achievement Ratio (STAR) experiment and other Class-Size Reduction (CSR) studies in various countries (Achilles et al, 2008). The potential impact of our results extends to informing educational policy, with implications for student achievement as well as teacher effectiveness. 
+
+ 
+### 3. Background 
+
+The Tennessee Student Teacher Achievement Ratio (STAR) experiment stands as a pivotal study in the field of early childhood education, specifically in the American K-12 education system. With its primary focus on the impact of class sizes on educational outcomes, STAR employed a rigorous experimental design, randomly assigning approximately 7,000 students each year to different class settings within 79 participating schools. The main features of this experiment are stated as below: 
+
+
+- The students were allocated into one of the three class types: "Small" class types with 15-17 students, "Regular" class types with 22-25 students, and "Regular with a full-time Aide" class types with also 22-25 students. (Achilles et al, 2008).
+
+
+- Interventions were initiated as students entered school in kindergarten and this continued up until the third grade (Achilles et al, 2008). 
+
+
+- STAR enrollments were near 7,000 each year per grade level (Achilles et al, 2008).
+
+
+- Schools from inner-city, rural, suburban, and urban locations were included in the study (Achilles et al, 2008). 
+
+
+- Students and teachers were randomly assigned to their class type (Achilles et al, 2008). 
+
+
+## 4. Descriptive analysis 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+library(haven)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(ggplot2)
+library(car)
+library(lme4)
+library(rcompanion)
+library(broom)
+library(dunn.test)
+library(gridExtra)
+library(reshape2)
+```
+
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+# Read in the STAR data set using the Haven package
+STAR = read_sav("/Users/iandimapasok/Desktop/UC_Davis_Courses/STA 207/Project/STAR_students.sav")
+```
+
+### 4.1: Description of the Data
+
+The STAR dataset consists of 11601 observations with 379 columns. These columns describe the background information of the students and teachers, the method of assigning class types, the identifiers for school and classes involved, and the academic test results. Our primary question of interest is to see whether there is any differences in math scaled scores in the first grade across all class types (small, regular, and regular with teacher aide). Our secondary question of interest is to see which class type is associated with the highest math scaled scores in the 1st grade. Because of this, we believe that the school identifier, 1st grade math scores, and class type are the most relevant factors for our questions of interest. 
+ 
+Before we explore the data, we first examined the dataset to see if there were any missing values. We found that there are about 4772 observations that are missing a class type. Because of this, we dropped all the observations in the data that do not have a class type. Furthermore, we dropped any observations that do not have a math score. There are a total of 5003 missing observations. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Identify missing data in the original dataset
+missing_class_type = subset(STAR, is.na(g1classtype))
+missing_math_score = subset(STAR, is.na(g1tmathss))
+
+# Combine the observations with missing class type or math score
+missing_data = unique(rbind(missing_class_type, missing_math_score))
+
+# Create a summary data frame for the missing data
+missing_summary = data.frame(
+  Variable = c("Missing Observations in Class Type", "Missing Observations in Math Score", 
+               "Total Missing Observations"),
+  Missing_Observations = c(nrow(missing_class_type), nrow(missing_math_score), nrow(missing_data)))
+
+kable(missing_summary)
+```
+
+
+### 4.2: Exploratory Data Analysis
+
+
+Looking at the overall math scores of first graders, we see that the average math score for 1st graders is approximately 530.5279 and a median value of 529, very close to the mean. This closeness suggests that there is not a significant skew in the data, indicating a balanced distribution of scores around the average. `Figure 1` shows a distribution of 1st grade median scores that is roughly normal with a slight skew to the right, indicating that most scores are clustered around the 550 mark, with fewer students having very high or very low scores. Furthermore, the standard deviation is around 43.1, which indicates a moderate level of variability in 1st grade math scores. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Define a dataframe using only a few columns
+STAR_reduced = STAR[c("g1schid", "g1tchid", "g1surban", "g1tmathss", "g1classtype", "g1freelunch")]
+
+# Drop the null values in the dataset
+# Make sure to drop the values that are not in STAR
+STAR_reduced = STAR_reduced %>%
+  filter(!is.na(g1classtype), !is.na(g1tmathss))
+
+colnames(STAR_reduced) = c("School_ID", "Teacher_ID", "City_Type","Math_Scores_1st", "Class_Type", "Lunch_Program")
+
+# Convert Class_Type, Teacher_ID, and School_ID column into a factor type variable
+STAR_reduced$Class_Type = factor(STAR_reduced$Class_Type, 
+                               levels = c(1,2,3), 
+                               labels = c("small", "regular", "regular + aide"))
+STAR_reduced$City_Type = factor(STAR_reduced$City_Type, 
+                               levels = c(1,2,3,4), 
+                               labels = c("Inner City", "Suburban", "Rural", "Urban"))
+STAR_reduced$Class_Type = as.factor(STAR_reduced$Class_Type)
+STAR_reduced$Teacher_ID = as.factor(STAR_reduced$Teacher_ID)
+STAR_reduced$School_ID = as.factor(STAR_reduced$School_ID)
+STAR_reduced$City_Type = as.factor(STAR_reduced$City_Type)
+STAR_reduced$Lunch_Program = as.factor(STAR_reduced$Lunch_Program)
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Aggregate the data by median 
+aggregated_data_median = STAR_reduced %>%
+  group_by(School_ID, Class_Type, City_Type) %>%
+  summarise(median_math1 = median(Math_Scores_1st, na.rm = TRUE, .groups = 'drop')) %>%
+  ungroup()
+
+# Drop the schools that don't have at least one of each class type
+drop_school_id = c(244728, 244796, 244736, 244839)
+aggregated_data_median = aggregated_data_median[!(aggregated_data_median$School_ID
+                                               %in% drop_school_id),]
+
+aggregated_data_median$School_ID = droplevels(aggregated_data_median$School_ID)
+aggregated_data_median$Class_Type = droplevels(aggregated_data_median$Class_Type)
+
+hist(aggregated_data_median$median_math1, main = "Figure 1: Histogram of 1st Grade Median Scores",
+     xlab = "1st Grade Median Math Scores")
+```
+
+
+***Figure 1***: *Distribution of 1st Grade Math Scores by Median*
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Summary of overall math scores 
+summary_math_scores = STAR_reduced %>%
+  summarise(
+    avg_math_grade1 = mean(Math_Scores_1st, na.rm = TRUE),
+    sd_math_grade1 = sd(Math_Scores_1st, na.rm = TRUE),
+    median_math_grade1 = median(Math_Scores_1st, na.rm = TRUE),
+    q25_math_grade1 = quantile(Math_Scores_1st, 0.25, na.rm = TRUE),
+    q75_math_grade1 = quantile(Math_Scores_1st, 0.75, na.rm = TRUE)
+    )
+
+# Change the column names of the table
+colnames(summary_math_scores) = c("Mean of 1st Grade Math Scores", 
+                                  "Standard Deviation of 1st Grade Math Scores", 
+                                  "Median of 1st Grade Math Scores",
+                                  "1st Quantile of 1st Grade Math Scores", 
+                                  "3rd Quantile of 1st Grade Math Scores")
+# Display the table using kable
+kable(summary_math_scores, format = "html", booktabs = TRUE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F, position = "left") %>%
+  column_spec(1, bold = TRUE) %>%
+  add_header_above(c(" " = 1, "1st Grade Math Scores" = 4))
+```
+
+
+Looking at the summary statistics of class types and `Figure 2`, we see that the median score in the regular class and the regular with aide class appears to be about the same, suggesting that 1st grade scaled math scores are similar in these two types of classes. However, the small class type has a slightly higher median score, indicating that 1st grade scaled math scores are somewhat higher in small classes compared to the other types. Additionally, all class types have outliers on the higher end, with regular classes having one, small classes having two, regular with aide classes having three. Furthermore, it seems that small class types have the highest 3rd quartile. This could further suggest that small class types seems to have a slightly better performance in terms of median scores compared to the other class types. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Generate summary statistics for 1st grade math scores based on class type. 
+summary_class_types = STAR_reduced %>%
+  group_by(Class_Type) %>%
+  summarise(
+    avg_math_grade1 = mean(Math_Scores_1st, na.rm = TRUE),
+    sd_math_grade1 = sd(Math_Scores_1st, na.rm = TRUE),
+    median_math_grade1 = median(Math_Scores_1st, na.rm = TRUE),
+    q25_math_grade1 = quantile(Math_Scores_1st, 0.25, na.rm = TRUE),
+    q75_math_grade1 = quantile(Math_Scores_1st, 0.75, na.rm = TRUE)
+  )
+# Rename the columns of the summary_class_types data frame
+colnames(summary_class_types) = c("Class Type", "Average Math Grade", "SD Math Grade", "Median Math Grade", "Q25 Math Grade", "Q75 Math Grade")
+
+# Print it out as a table
+kable(summary_class_types, caption = "Summary of Math Grades by Class Type")
+
+# Plotting for math scores for 1st graders by class types
+ggplot(STAR_reduced, aes(x = factor(Class_Type), y = Math_Scores_1st)) + 
+  geom_boxplot() +
+  labs(title = "Figure 2: Math Scores by Class Type in 1st Grade", x = "Class Type", y = "Math Score")
+```
+
+***Figure 2***: *1st Grade Math Scores by Class Type*
+
+
+The data was aggregated by determining the median of the math scores from the first grade. We decided to aggregate the data by median rather than the mean due to the fact that the median measure provides a central location measure that is more representative of the typical math score than the mean. In addition, there are a few outliers in our data, and the presence of outliers can heavily influence the mean but will have much less impact on the median. Therefore, aggregating the data by median rather than mean would be a better fit for our analysis. 
+
+Additionally, upon examining the data, there are a few schools that do not have all three class types, specifically school ID 244728, 244796, 244736, and 244839. Therefore, we will drop the observations that do not have all 3 class types. Dropping these observations from our dataset ensures a fair and accurate comparison as well as ensuring that we have at least one class type per observation in each school. 
+
+
+## 5. Inferential analysis 
+
+
+Upon examining the student enrollment in the STAR program, we observe a noticeable inconsistency in the number of students across different schools. Because of this, our dataset is not balanced so we will consider fitting an unbalanced two-way ANOVA model with fixed effects.
+ 
+ 
+In addition, we will not consider the interaction effects in our model because we do not need to analyze the effect of one specific school.  Moreover, after running an F-Test between the model without interactions and the model with interactions, we found that the interaction terms were not statistically significant at the 5% significance level. Furthermore, there is not enough statistical power to estimate the effects between class type and school ID. Therefore, we will only consider an unbalanced two-way ANOVA model without interaction terms. 
+
+
+### 5.1: Two-Way ANOVA Model
+
+
+Our unbalanced two-way ANOVA model is defined as $Y_{ijk} = \mu + \alpha_i + \beta_j + \epsilon_{ijk}$. $Y_{ijk}$ is the outcome measure for the ith class type and jth school, $\mu$ is the overall mean of the outcome across all groups, $\alpha_i$ is the effect of the ith class type (small, regular, and regular w/ aide), $\beta_j$ is the effect of the jth school, and $\epsilon_{ijk}$ is the random error term for the observation of the ith class type and the jth school. For our two-way ANOVA model without interactions, we define the constraints to be $\sum_{i=1}^a \alpha_i = 0$ & $\sum_{j=1}^b \beta_j= 0$ and we assume that the error terms are normally distributed with mean 0 and variance $\sigma^2$. 
+
+
+### 5.2: Hypothesis Testing
+
+
+Based on our primary question of interest, we will test to see if there is any differences in math scaled scores in 1st grade across class types. To test this, we define our null hypothesis to be $H_0$: all $\alpha_i$ = 0 for all i = 1,2,3 and our alternative hypothesis would be $H_a$: not all $\alpha_i$ = 0. Looking at the F-Table above, we get a test statistic of 17.899 and a p-value of 0.0000000117. Since our test statistic is high and our p-value is not greater than our significance level $\alpha = 0.05$, we will reject the null hypothesis. Therefore, we conclude that at the 5% significance level that there is a difference in math scaled scores in 1st grade across class types. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Running a balanced two-way ANOVA model with no interaction
+# excluded_rows = c("31", "40", "98")
+unbalanced_aov = Anova(lm(median_math1 ~ Class_Type + School_ID, data = aggregated_data_median), type = 2)
+                     # subset=setdiff(rownames(aggregated_data_median), excluded_rows)
+kable(unbalanced_aov, caption = "ANOVA Table for Two-Way ANOVA Model", "html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  column_spec(1, border_right = TRUE) %>%
+  column_spec(2, border_right = TRUE)
+```
+
+
+
+## 6. Sensitivity analysis 
+
+
+After running a two-way ANOVA model, we want to check if our model fits our assumptions well. Therefore, we need to test:
+
+1) The residuals are normally distributed. 
+
+2) The residuals have equal variance. 
+
+3) The residuals are independent and identically distributed. 
+
+
+### 6.1: Normality Assumption
+
+
+From `Figure 3`, we can see that most of the points follow the diagonal line. However, there are a few points that deviate away from the line. These points could violate our normality assumption so we will run a Shapiro-Wilks test to confirm whether our normality assumption has been violated. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Check the assumptions of the balanced anova model to see whether assumptions are met
+lm_fit = lm(median_math1 ~ Class_Type + School_ID, data = aggregated_data_median)
+plot(lm_fit, which = 2)
+```
+
+***Figure 3***: *Model Diagnostic Plot: Q-Q Plot*
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Conduct a Shapiro-Wilks Test to test our normality assumption
+Shapiro = shapiro.test(residuals(lm_fit))
+Shapiro_result = data.frame(Statistic = Shapiro$statistic, P_Value = Shapiro$p.value)
+kable(Shapiro_result, caption = "Shapiro-Wilk Test Results", "html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  column_spec(1, border_right = TRUE) %>%
+  column_spec(2, border_right = TRUE)
+```
+
+
+When carrying out our Shapiro-Wilks test we are testing whether our error terms follow a normal distribution. We define our null hypothesis to be $H_0$: The error terms are normally distributed, and our alternative hypothesis to be $H_a$: The error terms are not normally distributed. After running the Shapiro-Wilks test, we obtain a test statistic where W = 0.9934 and the p-value is 0.4529. Since our p-value is greater than our significance level $\alpha = 0.05$, we fail to reject the null hypothesis. Therefore, we can conclude that at the 5% significance level, that our error terms are normally distributed. 
+
+
+### 6.2: Equal Variance Assumption: 
+
+
+In order to visualize whether our equal variance assumption is met, we will take a look at our residual vs fitted plot to see if there are any discernible patterns in the plot. Looking at `Figure 4`, there are no discernible patterns in the residual vs fitted plot. This could mean that our equal variance assumption is met, but we will carry out a Levene-Test to confirm our suspicions. 
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Check the assumptions of the balanced anova model to see whether assumptions are met
+plot(lm_fit, which = 1)
+```
+
+***Figure 4***: *Model Diagnostic Plot: Residual vs Fitted Plot*
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+# Conduct the Levene Test for both factors
+levene_test = summary(aov(abs(lm_fit$residuals) ~ Class_Type + School_ID, data = aggregated_data_median))
+
+# Extract relevant values
+df_class_type = levene_test[[1]]["Class_Type", "Df"]
+df_school_id = levene_test[[1]]["School_ID", "Df"]
+mean_sq_class_type = levene_test[[1]]["Class_Type", "Mean Sq"]
+mean_sq_school_id = levene_test[[1]]["School_ID", "Mean Sq"]
+f_value_class_type = levene_test[[1]]["Class_Type", "F value"]
+f_value_school_id = levene_test[[1]]["School_ID", "F value"]
+p_value_class_type = levene_test[[1]]["Class_Type", "Pr(>F)"]
+p_value_school_id = levene_test[[1]]["School_ID", "Pr(>F)"]
+
+# Create a data frame
+levene_results_df = data.frame(
+  Factor = c("Class Type", "School ID"),
+  Degrees_of_Freedom = c(df_class_type, df_school_id),
+  Mean_Square = c(mean_sq_class_type, mean_sq_school_id),
+  F_Value = c(f_value_class_type, f_value_school_id),
+  P_Value = c(p_value_class_type, p_value_school_id)
+)
+
+```
+
+
+
+We define our null hypothesis as $H_0$: The variances between each class type is equal and our alternative hypothesis to be $H_a$: At least one class type has a variance that is significantly different from the variances of the other class types. In addition, we our also testing the equal variance assumption for each school. We define our null hypothesis as $H_0$: The variances between each school is equal and our alternative hypothesis as $H_a$: At least one school has a variance that is significantly different from the variances of the other schools.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+kable(levene_results_df, "html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  column_spec(1, border_right = TRUE) %>%
+  column_spec(2, border_right = TRUE)
+```
+
+
+After running the Levene test on class type, we obtain a test statistic is 1.908 and a p-value of 0.152. Therefore, we can conclude at the 5% significance level that the variances between each class type are equal. However, after running the Levene test on school ID, we get a test statistic of 2.191 and a p-value of 0.00000385. In this case, we would fail to reject $H_0$ and conclude at the 5% significance level that the variances between schools is not equal. 
+
+
+### 6.3: Independence: 
+
+
+Based on the experimental design, we can assume independence of the error terms. This is because within each school, students and teachers were randomly assigned to different class types. Due to this, the experimental design ensured that high/low performing students or teachers did not enhance or diminish the performance of a certain class type. 
+
+
+### 6.4: Nonparametric Approach
+
+
+Because the equal variance assumption was violated using a parametric test, we cannot use the F-Test or other normality based tests to test the effect between class types and 1st grade math scaled scores. Due to these violations, we employed a nonparametric test, specifically the Scheirer-Ray-Hare test. The Scheirer-Ray-Hare test is specifically used to test the differences between two or more factors and is an extension to the Kruskal-Wallis test. By using the Scheirer-Ray-Hare test, we are bypassing the need for normality or equal variances because the test is based on ranks rather than the actual data values. This test can be used to test whether the math scaled scores are affected by class types and different schools. We define our null hypothesis to be $H_0$ : The medians of 1st grade math scaled scores of all groups are equal and our alternative hypothesis as $H_a$: At least one group’s median of 1st grade math scaled scores differs from the others. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, results='hide'}
+# Using Scheirer-Ray-Hare Test since this is a two-way ANOVA model
+scheirer_test = scheirerRayHare(median_math1 ~ Class_Type + School_ID, data = aggregated_data_median)
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Table for the Scheirer-Ray-Hare test
+kable(scheirer_test, "html") %>%
+  kable_styling(full_width = FALSE, position = "left") %>%
+  column_spec(1, border_right = TRUE) %>%
+  column_spec(2, border_right = TRUE)
+```
+
+
+After carrying out the Scheirer-Ray-Hare test for both of class type and school ID, we obtain a test statistic of 10.087 and 151.03 respectively. In addition, we obtain a p-value of 0.006451 for class type and 0.00000001029 for the school IDs. Since both p-values are less than our respective significance level $\alpha = 0.05$, then we would reject our null hypothesis and can therefore conclude that there are statistically significant differences in the medians of 1st grade math scores across the different levels of both class type and school ID.
+
+
+### 6.5: Multiple Comparison using Dunn Test
+
+
+Because we found that there are significant differences within the groups, we will carry out with post-hoc tests (such as pairwise comparisons with a Dunn test) to determine which specific groups are different. Because we are specifically interested in testing if there are any differences in math scaled scores in the first grade across all class types, then we will run our Dunn test specifically on class type.
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE, results = 'hide'}
+# Conduct a Dunn test for mulitple comparison
+dunn_test_result = dunn.test(aggregated_data_median$median_math1, aggregated_data_median$Class_Type,
+                             method="bonferroni")
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Create a data frame with Dunn test results
+dunn_results = data.frame(
+  Comparison = c("regular vs. regular w/ aide", "regular vs. small", "regular w/ aide vs. small"),
+  Z = c(0.153406, -2.670602, -2.824008),
+  P = c(1.0000, 0.0114, 0.0071),
+  Significance = c("", "*", "*")
+)
+
+# Use kable to create a table
+kable(dunn_results, caption = "Multiple Comparison of Class Type (Bonferroni)", format = "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+
+Based on the results of the Dunn test, we see that the test statistics for the comparison of small class types with regular and regular + aide class types are -2.670602 and -2.824008 respectively. In addition, the adjusted p-values for comparison between small class types are 0.0114 and 0.0071. This indicates that these p-values are statistically significant at the 0.05 significance level after adjusting for multiple comparisons using the Bonferroni method. The Dunn Test revealed that the median difference is between the small class type and the regular class types, but not between the two regular class types. Furthermore, the Dunn test revealed that smaller classes tend to have higher 1st grade math scores compared to regular and regular with aide class types. 
+
+
+## 7. Discussion 
+
+
+### 7.1: Exploring Other Factors 
+
+
+Based on the findings that were presented earlier, we wanted to explore the additional factors that may affect 1st grade math scores other than class type. Specifically, we suspect that the location of the school might play a role into the heterogeneity of the schools. `Figure 5` shows a bar plot of the number of schools in each location. There is a larger portion of schools in the rural area compared to the rest of the locations. This could be a contributing factor behind the unequal variances of schools. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Summarize the data to get the count of schools in each location
+school_count = STAR_reduced %>%
+  group_by(City_Type) %>%
+  summarise(count = n())
+
+# Create the bar graph
+plot5 = ggplot(school_count, aes(x = City_Type, y = count, fill = City_Type)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(
+    title = "Figure 5: Number of Schools in Each Location",
+    x = "Location",
+    y = "Number of Schools"
+  ) + 
+  scale_fill_manual(values = c("Inner City" = 'blue', "Rural" = "red", "Suburban" = "green", "Urban" = "brown"))
+plot5
+```
+
+***Figure 5***: *Bar Plot of the Number of Schools in Each Location*
+
+
+In addition, the 1st grade students attending schools in inner-city locations tend to have lower math scores in comparison to other locations. This observation is supported by the boxplots in `Figures 6 and 7` which highlight the lower median scores. Schools who had more than half of their students on the free or reduced lunch program were defined as inner-city schools according to the project description (Achilles et al, 2008). Because of this, the relationship between school location and student math scores suggests that socioeconomic factors play a role in a 1st grader's academic performance. Inner-city schools, which often face challenges such as limited resources, higher student-to-teacher ratios, and less access to educational materials, may struggle to provide the same level of support as schools in more upscale areas. Despite this, smaller class sizes are still associated with higher 1st grade math scores, regardless of the school's location. The impact of smaller class sizes on student performance is further confirmed by the results earlier in the report. 
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Plotting for math scores for 1st graders by location
+plot6 = ggplot(STAR_reduced, aes(x = factor(City_Type), y = Math_Scores_1st)) + 
+  geom_boxplot() +
+  labs(title = "Figure 6: Math Scores by Location in 1st Grade", x = "Location", y = "Math Score")
+
+# Generating a boxplot looking at the class types with math scores. 
+plot7 = ggplot(STAR_reduced, aes(x=City_Type, y=Math_Scores_1st, fill=Class_Type)) + geom_boxplot()+
+        labs(title = "Figure 7: Boxplot by School Locations and Class ", 
+             x="Area", y = "Math Test Scores")+
+        guides(fill=guide_legend(title="Class Type"))+
+        scale_fill_manual(values=c("green", "blue", "red"))
+plot6
+plot7
+```
+
+***Figure 6***: *Boxplot of 1st Grade Math Scores by Location*
+
+***Figure 7***: *Boxplot of 1st Grade Math Scores by Class Type grouped by Location*
+
+
+### 7.2: Caveats in our Analysis
+
+
+### Unequal Variances between School IDs
+
+
+In our analysis, we observed unequal variance among the school IDs, which could be attributed to several characteristics. Firstly, the variability in the number of students across different schools, with populations ranging from approximately 50 to 200, may contribute to the heteroscedasticity of schools. Additionally, as stated before in section 7.1, the geographical distribution of schools presents a potential source of variance, with a larger number of schools located in rural areas (approximately 3,000) compared to inner-city, suburban, and urban locations. This uneven dispersion of students could influence the educational resources and teaching quality available in these different regions. Moreover, there is a notable discrepancy in math scores between different locations, with inner-city schools generally exhibiting lower scores compared to their counterparts. These factors combined suggest that the variability in class sizes, the location of schools across different areas, and location-based differences in academic performance are likely contributing to the unequal variance observed in our model.
+
+
+### Analysis on Missing Data
+
+
+Before conducting our analysis on the STAR dataset, there were many missing values that had to be dropped from the dataset. Examining the missing values, there is a trend that suggests that students are either dropping out or enrolling into the STAR program every year, especially from kindergarten to 3rd grade, as stated in the Background section. This is especially prevalent for students going from kindergarten to 1st grade, showing a massive decreasing trend in missing values according to `Figure 8`. The significant shift highlights the importance of grades early in the STAR program and seems to be critical in terms of student retention and enrollment into the STAR program. Additionally, the missing values begin to steadily increase or decrease from 1st grade up to 3rd grade, but not as drastically as the transition from kindergarten to first grade. The missing data in the STAR dataset reveals important trends in student movement, especially during the early grades, and could have implications for evaluating the program's effectiveness. 
+
+
+```{r, echo = FALSE, message = FALSE, warning=FALSE}
+# Create a data frame for the trend of missing values
+missing_value_data = STAR[, c("gkclasstype", "g1classtype", "g2classtype", "g3classtype", 
+                              "gktmathss", "g1tmathss", "g2tmathss","g3tmathss", 
+                              "gkschid","g1schid", "g2schid", "g3schid")]
+
+# Calculate missing values
+missing_trend = data.frame(
+  Year = c("Kindergarten", "Grade 1", "Grade 2", "Grade 3"),
+  MissingClassType = c(sum(is.na(missing_value_data$gkclasstype)),
+                       sum(is.na(missing_value_data$g1classtype)),
+                       sum(is.na(missing_value_data$g2classtype)),
+                       sum(is.na(missing_value_data$g3classtype))),
+  MissingMathScores = c(sum(is.na(missing_value_data$gktmathss)),
+                        sum(is.na(missing_value_data$g1tmathss)),
+                        sum(is.na(missing_value_data$g2tmathss)),
+                        sum(is.na(missing_value_data$g3tmathss)))
+)
+
+
+# Calculate non-missing values
+non_missing_trend = data.frame(
+  Year = c("Kindergarten", "Grade 1", "Grade 2", "Grade 3"),
+  NonMissingClassType = c(sum(!is.na(missing_value_data$gkclasstype)),
+                          sum(!is.na(missing_value_data$g1classtype)),
+                          sum(!is.na(missing_value_data$g2classtype)),
+                          sum(!is.na(missing_value_data$g3classtype))),
+  NonMissingMathScores = c(sum(!is.na(missing_value_data$gktmathss)),
+                           sum(!is.na(missing_value_data$g1tmathss)),
+                           sum(!is.na(missing_value_data$g2tmathss)),
+                           sum(!is.na(missing_value_data$g3tmathss)))
+)
+
+#Combine missing and non-missing data
+combined_trend = cbind(missing_trend, non_missing_trend[, -1])
+
+# Set the factor levels for 'Year' to ensure the correct order
+combined_trend$Year = factor(combined_trend$Year, levels = c("Kindergarten", "Grade 1", "Grade 2", "Grade 3"))
+
+# Melt the combined data for plotting
+combined_trend_melted = melt(combined_trend, id.vars = "Year")
+
+# Plot the line graph with lines for missing and non-missing values
+ggplot(combined_trend_melted, aes(x = Year, y = value, group = variable, color = variable)) +
+  geom_line() +
+  geom_point() +
+  labs(x = "Grade", y = "Count", title = "Figure 8: Trend of Missing and Non-Missing Values in the STAR Program",
+       color = "Variable") +
+  theme_minimal()
+```
+
+**Figure 8**: *Trend Plot of Missing and Non-Missing Values in the STAR Program*
+
+
+### 7.3: Conclusions
+
+
+Our analysis highlighted some challenges, including unequal variances in our ANOVA model and the various trends of missing data in our dataset. However, we observed several key findings related to the impact of class sizes on educational outcomes in early childhood education. One notable observation is the difference in median scores between first-grade math scores, where small classes tend to have higher averages compared to regular and regular with aide classes. This suggests that smaller class sizes may positively influence academic performance for students in early grades. Given these observations, policymakers should prioritize making investments in reducing class sizes, particularly in the early grades, in order to improve educational outcomes. Furthermore, policymakers should evaluate the allocation of resources, especially in inner-city locations to ensure that schools have the capacity to implement smaller classes without compromising the quality of education. Lastly, policies should also support professional development for teachers to effectively manage and teach in smaller class settings. 
+
+
+
+# Acknowledgement {-}
+
+
+1. Shizhe Chen, Chapter 4 ANOVA lecture notes was used to help fit the ANOVA model and define the ANOVA model.
+
+2. Nonparametric techniques were discussed with Sara G. and Ben J. using Sara G's STA 104 discussion notes. 
+
+3. Project was discussed with Sara G., Leena Q, and Ben J.
+
+
+
+# Reference {-}
+
+
+1. Achilles, C. M. (2012, September 30). Class-size policy: The Star Experiment and related class-size studies. NCPEA policy brief. volume 1, Number 2. NCPEA Publications. https://eric.ed.gov/?id=ED540485 
+
+2. Achilles, C.M., Bain, H. P., Bellott, F., Boyd-Zaharias, J., Finn, J., Folger, J., Johnston, J., & Word, E. (2008, October 7). Tennessee’s student teacher achievement ratio (STAR) project. Harvard Dataverse. https://dataverse.harvard.edu/dataset.xhtml?persistentId=hdl%3A1902.1%2F10766 
+
+3. Meier, L.  Chapter 6 random and mixed effects models: ANOVA and mixed models. Chapter 6 Random and Mixed Effects Models | ANOVA and Mixed Models. https://people.math.ethz.ch/~meier/teaching/anova/random-and-mixed-effects-models.html 
+
+
+
+## Appendix: all codes
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+# Session info {-}
+
+<span style='color:blue'>
+Report information of your `R` session for reproducibility. 
+</span> 
+
+
+```{r}
+sessionInfo()
+```
